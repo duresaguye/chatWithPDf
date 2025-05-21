@@ -39,10 +39,11 @@ app = FastAPI(
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=["http://localhost:5173"],  # Vite's default port
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"]
 )
 
 # Initialize ChromaDB with optimized settings
@@ -135,7 +136,7 @@ async def startup_event():
     )
     
     # Load Gemini model
-    model = genai.GenerativeModel('models/gemini-1.5-pro-002')
+    model = genai.GenerativeModel('gemini-2.0-flash')
     logger.info("Server started with all components loaded")
 
 @app.post("/upload", response_model=UploadResponse)
@@ -193,15 +194,16 @@ async def upload_pdf(
         logger.error(f"Upload failed: {str(e)}", exc_info=True)
         raise HTTPException(500, f"PDF upload failed: {str(e)}")
 
+
 @app.post("/ask", response_model=AnswerResponse)
 async def ask_question(request: QuestionRequest):
     try:
         check_system_resources()
         
-        # Retrieve relevant chunks (limited to 3 for lower memory usage)
+        # Retrieve relevant chunks (increased to 5 for better context)
         results = pdf_collection.query(
             query_texts=[request.question],
-            n_results=3,
+            n_results=5,
             where={"pdf_id": request.pdf_id} if request.pdf_id else None,
             include=["distances", "metadatas", "documents"]
         )
@@ -211,39 +213,65 @@ async def ask_question(request: QuestionRequest):
         distances = results["distances"][0]
         
         if not documents:
+            # If no relevant chunks found in the PDF
             return AnswerResponse(
-                answer="No relevant information found",
+                answer="I couldn't find any relevant information about this in your document. "
+                      "This appears to be outside the scope of the uploaded PDF.",
                 sources=[],
                 confidence=0.0
             )
         
-        # Generate answer using Gemini with limited context
-        context = "\n\n".join(documents[:3])
-        prompt = f"""Answer the question based on this context:
-        {context}
+        # Improved prompt with better structure and instructions
+        context = "\n\n".join([
+            f"DOCUMENT EXTRACT {i+1}:\n{text}\n"
+            for i, text in enumerate(documents[:5])
+        ])
         
-        Question: {request.question}
-        
-        Provide a concise answer using only the provided context. 
-        If unsure, say "I couldn't find a definitive answer in the document".
-        """
+        prompt = f"""You are an expert document analyst. Carefully analyze the following extracts from a PDF document to answer the user's question.
+
+DOCUMENT EXTRACTS:
+{context}
+
+USER QUESTION: {request.question}
+
+INSTRUCTIONS:
+1. Provide a clear, concise answer using ONLY the document extracts
+2. If the information isn't in the document, say: "The document doesn't specifically mention this, but generally..."
+3. For technical terms, provide simple explanations when possible
+4. If completely unrelated to the document, say: "This appears unrelated to your document"
+5. Never invent details not present in the document
+
+ANSWER:"""
         
         response = model.generate_content(prompt)
         
-        # Format sources
-        sources = [
-            f"{meta['filename']} (Chunk {meta['chunk_id']})"
-            for meta in metadatas[:3]
-        ]
+        # Determine if answer came from document or is general knowledge
+        answer_text = response.text
+        sources = []
+        confidence = 0.0
         
-        # Calculate confidence score
-        confidence = 1 - (sum(distances[:3]) / 3) if distances else 0.0
+        if any(keyword in answer_text.lower() for keyword in ["doesn't mention", "unrelated", "generally"]):
+            # Answer is not from document
+            confidence = 0.0
+        else:
+            # Answer is from document
+            sources = list(set([
+                meta['filename']
+                for meta in metadatas[:3]  # Show top 3 sources max
+            ]))
+            
+            # Calculate confidence score (normalized to 0-1 range)
+            if distances:
+                avg_distance = sum(distances[:3]) / 3
+                confidence = max(0, min(1, 1 - (avg_distance / 2)))  # Normalize
+                confidence = round(confidence, 2)
         
         return AnswerResponse(
-            answer=response.text,
+            answer=answer_text,
             sources=sources,
-            confidence=round(confidence, 2)
+            confidence=confidence
         )
+        
     except HTTPException:
         raise
     except Exception as e:
