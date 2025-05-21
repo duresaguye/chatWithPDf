@@ -38,8 +38,8 @@ An intelligent PDF question-answering system that uses AI to analyze PDF documen
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd pdf-qa
+git clone https://github.com/duresaguye/chatWithPDf
+cd chatwithPdf
 ```
 
 2. Set up the backend:
@@ -118,13 +118,3 @@ pdf-qa/
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Google Gemini AI for the language model
-- ChromaDB for vector storage
-- FastAPI for the backend framework
-- React and Tailwind CSS for the frontend 
