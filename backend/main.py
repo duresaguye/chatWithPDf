@@ -6,7 +6,7 @@ from pydantic import BaseModel
 import chromadb
 from chromadb.utils import embedding_functions
 import uuid
-import pdfplumber  # More memory efficient than PyPDF2
+import PyPDF2  
 import io
 from typing import List, Optional
 from dotenv import load_dotenv
@@ -101,6 +101,22 @@ def chunk_text(text: str) -> List[str]:
     
     return chunks
 
+def extract_text_from_pdf(content: bytes) -> str:
+    """Extract text from PDF using PyPDF2 with memory limits"""
+    text = ""
+    try:
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+        for i, page in enumerate(pdf_reader.pages):
+            if i >= MAX_PAGES:
+                break
+            page_text = page.extract_text() or ""
+            if len(text) + len(page_text) > MAX_TEXT_LENGTH:
+                break
+            text += page_text + "\n"
+    except Exception as e:
+        raise HTTPException(400, f"PDF processing failed: {str(e)}")
+    return text
+
 @app.on_event("startup")
 async def startup_event():
     """Lazy load heavy components"""
@@ -119,7 +135,7 @@ async def startup_event():
     )
     
     # Load Gemini model
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('models/gemini-1.5-pro-002')
     logger.info("Server started with all components loaded")
 
 @app.post("/upload", response_model=UploadResponse)
@@ -136,19 +152,8 @@ async def upload_pdf(
         if len(content) > MAX_PDF_SIZE:
             raise HTTPException(400, f"PDF too large. Max size is {MAX_PDF_SIZE/1024/1024}MB")
 
-        # Process PDF with pdfplumber (more memory efficient)
-        text = ""
-        try:
-            with pdfplumber.open(io.BytesIO(content)) as pdf:
-                for i, page in enumerate(pdf.pages):
-                    if i >= MAX_PAGES:
-                        break
-                    page_text = page.extract_text() or ""
-                    if len(text) + len(page_text) > MAX_TEXT_LENGTH:
-                        break
-                    text += page_text + "\n"
-        except Exception as e:
-            raise HTTPException(400, f"PDF processing failed: {str(e)}")
+        # Process PDF with PyPDF2
+        text = extract_text_from_pdf(content)
 
         if not text:
             raise HTTPException(400, "Could not extract text from PDF")
@@ -163,7 +168,7 @@ async def upload_pdf(
         filename = file.filename
 
         # Prepare documents for ChromaDB
-        documents_to_add = chunks[:MAX_CHUNKS]  # Ensure we don't exceed max chunks
+        documents_to_add = chunks[:MAX_CHUNKS]
         metadatas_to_add = [{
             "pdf_id": pdf_id,
             "filename": filename,
@@ -196,7 +201,7 @@ async def ask_question(request: QuestionRequest):
         # Retrieve relevant chunks (limited to 3 for lower memory usage)
         results = pdf_collection.query(
             query_texts=[request.question],
-            n_results=3,  # Reduced from 5
+            n_results=3,
             where={"pdf_id": request.pdf_id} if request.pdf_id else None,
             include=["distances", "metadatas", "documents"]
         )
@@ -213,7 +218,7 @@ async def ask_question(request: QuestionRequest):
             )
         
         # Generate answer using Gemini with limited context
-        context = "\n\n".join(documents[:3])  # Only use top 3 chunks
+        context = "\n\n".join(documents[:3])
         prompt = f"""Answer the question based on this context:
         {context}
         
@@ -228,7 +233,7 @@ async def ask_question(request: QuestionRequest):
         # Format sources
         sources = [
             f"{meta['filename']} (Chunk {meta['chunk_id']})"
-            for meta in metadatas[:3]  # Only show top 3 sources
+            for meta in metadatas[:3]
         ]
         
         # Calculate confidence score
@@ -251,7 +256,7 @@ if __name__ == "__main__":
         app,
         host="0.0.0.0",
         port=8000,
-        workers=1,  # Reduce workers for low memory
-        limit_max_requests=100,  # Auto-restart after 100 requests
-        timeout_keep_alive=30  # Reduce keep-alive time
+        workers=1,
+        limit_max_requests=100,
+        timeout_keep_alive=30
     )
