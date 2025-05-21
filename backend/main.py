@@ -1,23 +1,40 @@
 import os
 import google.generativeai as genai
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, status
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import chromadb
 from chromadb.utils import embedding_functions
 import uuid
-import PyPDF2
+import pdfplumber  # More memory efficient than PyPDF2
 import io
 from typing import List, Optional
 from dotenv import load_dotenv
+import psutil
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-pro')
+# System resource limits
+MAX_PDF_SIZE = 2 * 1024 * 1024  # 2MB
+MAX_PAGES = 20
+MAX_TEXT_LENGTH = 50000  # characters
+MAX_CHUNKS = 30
+CHUNK_SIZE = 500
+OVERLAP = 100
 
-app = FastAPI(title="PDF QA System with Gemini", version="1.0.0")
+# Configure Gemini (lazy loaded later)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+app = FastAPI(
+    title="PDF QA System with Gemini",
+    version="1.0.0",
+    docs_url=None if os.getenv("ENV") == "production" else "/docs"
+)
 
 # CORS configuration
 app.add_middleware(
@@ -27,16 +44,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
-# Initialize ChromaDB with Sentence Transformers embeddings
-client = chromadb.PersistentClient(path="./chroma_db")
-sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
+
+# Initialize ChromaDB with optimized settings
+client = chromadb.PersistentClient(
+    path="./chroma_db",
+    settings=chromadb.Settings(
+        anonymized_telemetry=False,
+        allow_reset=True,
+        is_persistent=True,
+        persist_directory="./chroma_db"
+    )
 )
 
-pdf_collection = client.get_or_create_collection(
-    name="pdf_documents",
-    embedding_function=sentence_transformer_ef
-)
+# Lazy loaded components
+model = None
+sentence_transformer_ef = None
+pdf_collection = None
 
 class QuestionRequest(BaseModel):
     question: str
@@ -52,62 +75,102 @@ class UploadResponse(BaseModel):
     filename: str
     num_chunks: int
 
-# Keep the same chunk_text and extract_text_from_pdf functions
+def check_system_resources():
+    """Check if system has enough resources to proceed"""
+    mem = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    
+    if mem.available < 1 * 1024 * 1024 * 1024:  # Less than 1GB RAM
+        logger.warning(f"Low memory available: {mem.available/1024/1024:.2f}MB")
+        raise HTTPException(503, "Server memory low, please try again later")
+    if disk.free < 1 * 1024 * 1024 * 1024:  # Less than 1GB disk space
+        logger.warning(f"Low disk space: {disk.free/1024/1024:.2f}MB")
+        raise HTTPException(503, "Insufficient disk space")
+
+def chunk_text(text: str) -> List[str]:
+    """Efficient text chunking with boundary checks"""
+    chunks = []
+    start = 0
+    text_length = len(text)
+    
+    while start < text_length and len(chunks) < MAX_CHUNKS:
+        end = min(start + CHUNK_SIZE, text_length)
+        chunk = text[start:end]
+        chunks.append(chunk)
+        start = max(0, end - OVERLAP)  # Prevent negative start index
+    
+    return chunks
+
+@app.on_event("startup")
+async def startup_event():
+    """Lazy load heavy components"""
+    global model, sentence_transformer_ef, pdf_collection
+    
+    # Load embedding function
+    sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2",
+        device="cpu"  # Force CPU usage
+    )
+    
+    # Initialize collection
+    pdf_collection = client.get_or_create_collection(
+        name="pdf_documents",
+        embedding_function=sentence_transformer_ef
+    )
+    
+    # Load Gemini model
+    model = genai.GenerativeModel('gemini-pro')
+    logger.info("Server started with all components loaded")
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_pdf(
     file: UploadFile = File(...),
-    user_id: str = Form(...),
-    chunk_size: int = Form(1000),
-    overlap: int = Form(200)
+    user_id: str = Form(None),
+    background_tasks: BackgroundTasks = None
 ):
     try:
-        # Read the PDF content
+        check_system_resources()
+        
+        # Validate file size
         content = await file.read()
-        pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+        if len(content) > MAX_PDF_SIZE:
+            raise HTTPException(400, f"PDF too large. Max size is {MAX_PDF_SIZE/1024/1024}MB")
+
+        # Process PDF with pdfplumber (more memory efficient)
         text = ""
-        for page_num in range(len(pdf_reader.pages)):
-            text += pdf_reader.pages[page_num].extract_text() or ""
+        try:
+            with pdfplumber.open(io.BytesIO(content)) as pdf:
+                for i, page in enumerate(pdf.pages):
+                    if i >= MAX_PAGES:
+                        break
+                    page_text = page.extract_text() or ""
+                    if len(text) + len(page_text) > MAX_TEXT_LENGTH:
+                        break
+                    text += page_text + "\n"
+        except Exception as e:
+            raise HTTPException(400, f"PDF processing failed: {str(e)}")
 
         if not text:
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
+            raise HTTPException(400, "Could not extract text from PDF")
 
-        # Generate a unique PDF ID
+        # Generate chunks
+        chunks = chunk_text(text)
+        if not chunks:
+            raise HTTPException(400, "Could not chunk text")
+
+        # Prepare metadata
         pdf_id = str(uuid.uuid4())
         filename = file.filename
 
-        # Chunk the text
-        # Simple chunking for now - can be improved
-        # This basic implementation just splits the text into chunks of chunk_size with overlap
-        chunks = []
-        start = 0
-        while start < len(text):
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start += chunk_size - overlap
-            # Ensure start doesn't go backwards if overlap > chunk_size
-            if start < 0:
-                start = 0
-
-
-        if not chunks:
-             raise HTTPException(status_code=400, detail="Could not chunk text")
-
-
         # Prepare documents for ChromaDB
-        documents_to_add = []
-        metadatas_to_add = []
-        ids_to_add = []
-
-        for i, chunk in enumerate(chunks):
-            documents_to_add.append(chunk)
-            metadatas_to_add.append({
-                "pdf_id": pdf_id,
-                "filename": filename,
-                "chunk_id": i
-            })
-            ids_to_add.append(f"{pdf_id}_chunk_{i}")
+        documents_to_add = chunks[:MAX_CHUNKS]  # Ensure we don't exceed max chunks
+        metadatas_to_add = [{
+            "pdf_id": pdf_id,
+            "filename": filename,
+            "chunk_id": i,
+            "user_id": user_id or "anonymous"
+        } for i in range(len(documents_to_add))]
+        ids_to_add = [f"{pdf_id}_chunk_{i}" for i in range(len(documents_to_add))]
 
         # Add to ChromaDB collection
         pdf_collection.add(
@@ -116,21 +179,24 @@ async def upload_pdf(
             ids=ids_to_add
         )
 
+        logger.info(f"Uploaded PDF {filename} with {len(chunks)} chunks")
         return UploadResponse(pdf_id=pdf_id, filename=filename, num_chunks=len(chunks))
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"PDF upload failed: {str(e)}"
-        )
+        logger.error(f"Upload failed: {str(e)}", exc_info=True)
+        raise HTTPException(500, f"PDF upload failed: {str(e)}")
 
 @app.post("/ask", response_model=AnswerResponse)
 async def ask_question(request: QuestionRequest):
     try:
-        # Retrieve relevant chunks
+        check_system_resources()
+        
+        # Retrieve relevant chunks (limited to 3 for lower memory usage)
         results = pdf_collection.query(
             query_texts=[request.question],
-            n_results=5,
+            n_results=3,  # Reduced from 5
             where={"pdf_id": request.pdf_id} if request.pdf_id else None,
             include=["distances", "metadatas", "documents"]
         )
@@ -146,8 +212,8 @@ async def ask_question(request: QuestionRequest):
                 confidence=0.0
             )
         
-        # Generate answer using Gemini
-        context = "\n\n".join(documents)
+        # Generate answer using Gemini with limited context
+        context = "\n\n".join(documents[:3])  # Only use top 3 chunks
         prompt = f"""Answer the question based on this context:
         {context}
         
@@ -162,23 +228,30 @@ async def ask_question(request: QuestionRequest):
         # Format sources
         sources = [
             f"{meta['filename']} (Chunk {meta['chunk_id']})"
-            for meta in metadatas
+            for meta in metadatas[:3]  # Only show top 3 sources
         ]
         
         # Calculate confidence score
-        confidence = 1 - (sum(distances) / len(distances)) if distances else 0.0
+        confidence = 1 - (sum(distances[:3]) / 3) if distances else 0.0
         
         return AnswerResponse(
             answer=response.text,
             sources=sources,
             confidence=round(confidence, 2)
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Question processing failed: {str(e)}"
-        )
+        logger.error(f"Question processing failed: {str(e)}", exc_info=True)
+        raise HTTPException(500, f"Question processing failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        workers=1,  # Reduce workers for low memory
+        limit_max_requests=100,  # Auto-restart after 100 requests
+        timeout_keep_alive=30  # Reduce keep-alive time
+    )
