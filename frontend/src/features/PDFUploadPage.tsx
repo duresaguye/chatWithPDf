@@ -112,7 +112,7 @@ export default function PDFUploadPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-br from-gray-50 to-blue-50">
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50">
       <Card className="w-full max-w-md border-0 shadow-lg overflow-hidden">
         <CardHeader className="border-b border-gray-200">
           <div className="flex flex-col items-center space-y-2">
@@ -212,7 +212,7 @@ export default function PDFUploadPage() {
           <Button 
             onClick={handleUpload} 
             disabled={!file || uploading}
-            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all"
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600  hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all"
             size="lg"
           >
             {uploading ? (
@@ -221,7 +221,7 @@ export default function PDFUploadPage() {
                 Processing...
               </span>
             ) : (
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-4">
                 <Rocket className="h-4 w-4" />
                 Analyze with AI
               </span>
