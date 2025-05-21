@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, CheckCircle, Upload } from "lucide-react"
+import { AlertCircle, CheckCircle, Upload, FileText, X, Loader2, Rocket } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { API_ENDPOINTS } from "@/config"
 
@@ -13,12 +13,17 @@ export default function PDFUploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle")
   const [errorMessage, setErrorMessage] = useState("")
+  const [isDragging, setIsDragging] = useState(false)
   const navigate = useNavigate()
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
-    if (selectedFile && selectedFile.type === "application/pdf") {
-      setFile(selectedFile)
+    validateAndSetFile(selectedFile)
+  }
+
+  const validateAndSetFile = (file: File | undefined) => {
+    if (file && file.type === "application/pdf") {
+      setFile(file)
       setUploadStatus("idle")
       setErrorMessage("")
     } else {
@@ -26,6 +31,22 @@ export default function PDFUploadPage() {
       setErrorMessage("Please select a valid PDF file")
       setUploadStatus("error")
     }
+  }
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = () => {
+    setIsDragging(false)
+  }
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const droppedFile = e.dataTransfer.files?.[0]
+    validateAndSetFile(droppedFile)
   }
 
   const handleUpload = async () => {
@@ -54,11 +75,10 @@ export default function PDFUploadPage() {
       const response = await fetch(API_ENDPOINTS.upload, {
         method: "POST",
         headers: {
-          // Don't set Content-Type header - let the browser set it with the boundary
           'Accept': 'application/json',
         },
         body: formData,
-        credentials: 'include', // Include credentials if needed
+        credentials: 'include',
       })
 
       clearInterval(progressInterval)
@@ -92,69 +112,124 @@ export default function PDFUploadPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle className="text-2xl">Upload PDF</CardTitle>
-          <CardDescription>Upload a PDF file to ask questions about its content</CardDescription>
+    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gradient-to-br from-gray-50 to-blue-50">
+      <Card className="w-full max-w-md border-0 shadow-lg overflow-hidden">
+        <CardHeader className="border-b border-gray-200">
+          <div className="flex flex-col items-center space-y-2">
+            <Rocket className="h-8 w-8 text-blue-600" />
+            <CardTitle className="text-2xl font-bold text-gray-800">Upload Your PDF</CardTitle>
+            <CardDescription className="text-center text-gray-500">
+              Upload a document to start asking AI-powered questions
+            </CardDescription>
+          </div>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div 
-              className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 cursor-pointer hover:bg-gray-50 transition-colors"
-              onClick={() => document.getElementById('pdf-upload')?.click()}
-            >
-              <input
-                type="file"
-                accept=".pdf,application/pdf"
-                onChange={handleFileChange}
-                className="hidden"
-                id="pdf-upload"
+        <CardContent className="p-6 space-y-5">
+          <div 
+            className={`flex flex-col items-center justify-center rounded-xl p-8 cursor-pointer transition-all ${
+              isDragging 
+                ? 'border-2 border-dashed border-blue-400 bg-blue-50' 
+                : 'border-2 border-dashed border-gray-300 hover:border-blue-300 hover:bg-blue-50'
+            }`}
+            onClick={() => document.getElementById('pdf-upload')?.click()}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+              id="pdf-upload"
+              disabled={uploading}
+            />
+            <label htmlFor="pdf-upload" className="cursor-pointer flex flex-col items-center space-y-3">
+              <div className="p-3 rounded-full bg-blue-100">
+                <Upload className="h-6 w-6 text-blue-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-medium text-gray-700">
+                  {isDragging ? 'Drop your PDF here' : 'Click to browse or drag & drop'}
+                </p>
+                <p className="text-sm text-gray-500 mt-1">Supports PDF files up to 2MB</p>
+              </div>
+            </label>
+          </div>
+
+          {file && (
+            <div className="flex items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+              <FileText className="h-5 w-5 text-blue-600 mr-3" />
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-gray-900 truncate">{file.name}</p>
+                <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+              </div>
+              <button 
+                onClick={() => setFile(null)} 
                 disabled={uploading}
-              />
-              <label htmlFor="pdf-upload" className="cursor-pointer flex flex-col items-center">
-                <Upload className="h-10 w-10 text-gray-400 mb-2" />
-                <span className="text-sm text-gray-500">Click to select a PDF file</span>
-              </label>
+                className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
+          )}
 
-            {file && (
-              <div className="p-3 bg-gray-100 rounded-md">
-                <p className="font-medium">{file.name}</p>
-                <p className="text-sm text-gray-500">{formatFileSize(file.size)}</p>
+          {uploading && (
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm text-gray-600">
+                <span>Processing document...</span>
+                <span>{uploadProgress}%</span>
               </div>
-            )}
+              <Progress 
+                value={uploadProgress} 
+                className="h-2 bg-gray-200"
+                indicatorClassName="bg-gradient-to-r from-blue-500 to-indigo-500"
+              />
+            </div>
+          )}
 
-            {uploading && (
-              <div className="space-y-2">
-                <Progress value={uploadProgress} className="h-2" />
-                <p className="text-sm text-gray-500 text-center">Uploading... {uploadProgress}%</p>
+          {uploadStatus === "success" && (
+            <Alert className="border-green-200 bg-green-50">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+              <div>
+                <AlertTitle className="text-green-800">Upload Complete!</AlertTitle>
+                <AlertDescription className="text-green-700">
+                  Your document is being processed. You'll be redirected shortly...
+                </AlertDescription>
               </div>
-            )}
+            </Alert>
+          )}
 
-            {uploadStatus === "success" && (
-              <Alert variant="default" className="bg-green-50 border-green-200">
-                <CheckCircle className="h-4 w-4 text-green-600" />
-                <AlertTitle>Success</AlertTitle>
-                <AlertDescription>PDF uploaded successfully! Redirecting to Q&A page...</AlertDescription>
-              </Alert>
-            )}
-
-            {uploadStatus === "error" && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Error</AlertTitle>
+          {uploadStatus === "error" && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-5 w-5" />
+              <div>
+                <AlertTitle>Upload Failed</AlertTitle>
                 <AlertDescription>{errorMessage}</AlertDescription>
-              </Alert>
-            )}
+              </div>
+            </Alert>
+          )}
 
-            <Button 
-              onClick={handleUpload} 
-              disabled={!file || uploading} 
-              className="w-full"
-            >
-              {uploading ? "Uploading..." : "Upload PDF"}
-            </Button>
+          <Button 
+            onClick={handleUpload} 
+            disabled={!file || uploading}
+            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all"
+            size="lg"
+          >
+            {uploading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Processing...
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                <Rocket className="h-4 w-4" />
+                Analyze with AI
+              </span>
+            )}
+          </Button>
+
+          <div className="text-center text-xs text-gray-500 pt-2">
+            Your files are processed securely and never stored permanently
           </div>
         </CardContent>
       </Card>
