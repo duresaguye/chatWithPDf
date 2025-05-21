@@ -93,7 +93,7 @@ npm run dev
 ## Project Structure
 
 ```
-pdf-qa/
+chatWithPDf/
 ├── backend/
 │   ├── main.py
 │   ├── requirements.txt
