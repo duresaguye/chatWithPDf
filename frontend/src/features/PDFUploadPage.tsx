@@ -1,28 +1,26 @@
-"use client"
-
-import type React from "react"
-
-import { useState } from "react"
+import { useState, type ChangeEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { useRouter } from "next/navigation"
+import { useNavigate } from 'react-router-dom'
 import { AlertCircle, CheckCircle, Upload } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { API_ENDPOINTS } from "@/config"
 
-export default function Home() {
+export default function PDFUploadPage() {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
   const [uploadStatus, setUploadStatus] = useState<"idle" | "success" | "error">("idle")
   const [errorMessage, setErrorMessage] = useState("")
-  const router = useRouter()
+  const navigate = useNavigate()
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
     if (selectedFile && selectedFile.type === "application/pdf") {
       setFile(selectedFile)
       setUploadStatus("idle")
+      setErrorMessage("")
     } else {
       setFile(null)
       setErrorMessage("Please select a valid PDF file")
@@ -49,42 +47,48 @@ export default function Home() {
     }, 200)
 
     try {
-      // Create form data
       const formData = new FormData()
-      formData.append("pdf", file)
+      formData.append("file", file)
+      formData.append("user_id", "anonymous")
 
-      // Send the file to the server
-      const response = await fetch("/api/upload", {
+      const response = await fetch(API_ENDPOINTS.upload, {
         method: "POST",
+        headers: {
+          // Don't set Content-Type header - let the browser set it with the boundary
+          'Accept': 'application/json',
+        },
         body: formData,
+        credentials: 'include', // Include credentials if needed
       })
 
       clearInterval(progressInterval)
 
       if (!response.ok) {
-        throw new Error("Upload failed")
+        const errorData = await response.json().catch(() => ({ detail: "Upload failed" }))
+        throw new Error(errorData.detail || "Upload failed")
       }
 
+      const data = await response.json()
       setUploadProgress(100)
       setUploadStatus("success")
 
       // Redirect to Q&A page after successful upload
       setTimeout(() => {
-        router.push("/qa")
+        navigate("/qa", { state: { pdfId: data.pdf_id } })
       }, 1500)
     } catch (error) {
       clearInterval(progressInterval)
       setUploadStatus("error")
-      setErrorMessage("Failed to upload the PDF. Please try again.")
+      setErrorMessage(error instanceof Error ? error.message : "Failed to upload the PDF. Please try again.")
     } finally {
       setUploading(false)
     }
   }
 
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + " bytes"
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB"
-    else return (bytes / 1048576).toFixed(1) + " MB"
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} bytes`
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
+    return `${(bytes / 1048576).toFixed(1)} MB`
   }
 
   return (
@@ -96,7 +100,10 @@ export default function Home() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 cursor-pointer hover:bg-gray-50 transition-colors">
+            <div 
+              className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-6 cursor-pointer hover:bg-gray-50 transition-colors"
+              onClick={() => document.getElementById('pdf-upload')?.click()}
+            >
               <input
                 type="file"
                 accept=".pdf,application/pdf"
@@ -141,7 +148,11 @@ export default function Home() {
               </Alert>
             )}
 
-            <Button onClick={handleUpload} disabled={!file || uploading} className="w-full">
+            <Button 
+              onClick={handleUpload} 
+              disabled={!file || uploading} 
+              className="w-full"
+            >
               {uploading ? "Uploading..." : "Upload PDF"}
             </Button>
           </div>

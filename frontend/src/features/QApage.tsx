@@ -8,12 +8,15 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input"
 import { Loader2, Send, FileText, User, Bot } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useRouter } from "next/navigation"
+import { useNavigate, useLocation } from "react-router-dom"
+import { API_ENDPOINTS } from "@/config"
 
-type Message = {
+interface Message {
   id: string
   role: "user" | "assistant"
   content: string
+  sources?: string[]
+  confidence?: number
 }
 
 export default function QAPage() {
@@ -22,7 +25,16 @@ export default function QAPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const pdfId = location.state?.pdfId
+
+  // Redirect to upload page if no PDF ID
+  useEffect(() => {
+    if (!pdfId) {
+      navigate("/", { replace: true })
+    }
+  }, [pdfId, navigate])
 
   // Scroll to bottom of messages
   useEffect(() => {
@@ -31,7 +43,7 @@ export default function QAPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!question.trim()) return
+    if (!question.trim() || !pdfId) return
 
     // Add user message to chat
     const userMessage: Message = {
@@ -46,16 +58,20 @@ export default function QAPage() {
 
     try {
       // Send question to API
-      const response = await fetch("/api/ask", {
+      const response = await fetch(API_ENDPOINTS.ask, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ 
+          question,
+          pdf_id: pdfId 
+        }),
       })
 
       if (!response.ok) {
-        throw new Error("Failed to get answer")
+        const errorData = await response.json()
+        throw new Error(errorData.detail || "Failed to get answer")
       }
 
       const data = await response.json()
@@ -65,13 +81,19 @@ export default function QAPage() {
         id: Date.now().toString(),
         role: "assistant",
         content: data.answer,
+        sources: data.sources,
+        confidence: data.confidence
       }
       setMessages((prev) => [...prev, assistantMessage])
     } catch (err) {
-      setError("Failed to get an answer. Please try again.")
+      setError(err instanceof Error ? err.message : "Failed to get an answer. Please try again.")
     } finally {
       setLoading(false)
     }
+  }
+
+  if (!pdfId) {
+    return null // Will be redirected by useEffect
   }
 
   return (
@@ -83,7 +105,7 @@ export default function QAPage() {
               <CardTitle className="text-2xl">PDF Q&A</CardTitle>
               <CardDescription>Ask questions about your uploaded PDF</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => router.push("/")}>
+            <Button variant="outline" onClick={() => navigate("/")}>
               <FileText className="mr-2 h-4 w-4" />
               Upload New PDF
             </Button>
@@ -98,7 +120,10 @@ export default function QAPage() {
               </div>
             ) : (
               messages.map((message) => (
-                <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div 
+                  key={message.id} 
+                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                >
                   <div
                     className={`max-w-[80%] rounded-lg p-3 ${
                       message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
@@ -118,6 +143,14 @@ export default function QAPage() {
                       )}
                     </div>
                     <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.role === "assistant" && message.sources && message.sources.length > 0 && (
+                      <div className="mt-2 text-sm text-gray-500">
+                        <p>Sources: {message.sources.join(", ")}</p>
+                        {message.confidence && (
+                          <p>Confidence: {(message.confidence * 100).toFixed(1)}%</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -148,7 +181,7 @@ export default function QAPage() {
           <form onSubmit={handleSubmit} className="w-full flex gap-2">
             <Input
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuestion(e.target.value)}
               placeholder="Ask a question about your PDF..."
               disabled={loading}
               className="flex-grow"

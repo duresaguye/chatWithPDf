@@ -1,12 +1,16 @@
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import PDFUploadPage from './features/PDFUploadPage';
+import QAPage from './features/QApage';
 
-    import React from 'react';
-    import PDFUploadPage from './features/PDFUploadPage';
-    import QApage from './features/QApage';
-    
-    const Home: React.FC = () => {
-      return (
-        <QApage />
-      );
-    };
-    
-    export default Home;
+const App: React.FC = () => {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/" element={<PDFUploadPage />} />
+        <Route path="/qa" element={<QAPage />} />
+      </Routes>
+    </Router>
+  );
+};
+
+export default App;
