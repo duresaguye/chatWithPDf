@@ -1,14 +1,22 @@
-"use client"
-
 import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Loader2, Send, FileText, User, Bot } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useNavigate, useLocation } from "react-router-dom"
 import { API_ENDPOINTS } from "@/config"
+
+// Add custom styles for hiding scrollbar
+const scrollbarStyles = `
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+`
 
 interface Message {
   id: string
@@ -91,99 +99,113 @@ export default function QAPage() {
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 bg-gray-50">
-      <Card className="w-full max-w-3xl h-[80vh] flex flex-col">
-        <CardHeader className="border-b">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-xl font-semibold">PDF Chat</CardTitle>
-              <CardDescription>Ask questions about your document</CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => navigate("/")}>
-              <FileText className="mr-2 h-4 w-4" />
-              New PDF
-            </Button>
+    <main className="flex min-h-screen flex-col items-center bg-gray-50">
+      <style>{scrollbarStyles}</style>
+      <div className="w-full max-w-5xl h-screen flex flex-col">
+        {/* Header */}
+        <div className="border-b bg-white p-4 flex items-center justify-between pt-32">
+          <div className="flex items-center space-x-2">
+            <Bot className="h-6 w-6 text-gray-700" />
+            <h1 className="text-lg font-semibold">PDF Assistant</h1>
           </div>
-        </CardHeader>
-        <CardContent className="flex-grow overflow-y-auto p-4 space-y-4">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => navigate("/")}
+            className="flex items-center"
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            New PDF
+          </Button>
+        </div>
+
+        {/* Chat Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
           {messages.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-gray-500">
-              <Bot className="h-8 w-8 mb-2" />
-              <p>Ask your first question about the PDF</p>
+              <Bot className="h-10 w-10 mb-4" />
+              <p className="text-lg">Ask me anything about your PDF document</p>
+              <p className="text-sm mt-2">I'll help you analyze and understand its contents</p>
             </div>
           ) : (
-            messages.map((message) => (
-              <div 
-                key={message.id} 
-                className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                <div
-                  className={`max-w-[85%] rounded-lg p-3 ${
-                    message.role === "user" 
-                      ? "bg-gray-800 text-white" 
-                      : "bg-gray-100"
-                  }`}
+            <div className="px-4 md:px-8">
+              {messages.map((message) => (
+                <div 
+                  key={message.id} 
+                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} mb-6`}
                 >
-                  <div className="flex items-center gap-2 mb-1 text-sm font-medium">
-                    {message.role === "user" ? (
-                      <>
-                        <User className="h-4 w-4" />
-                        You
-                      </>
-                    ) : (
-                      <>
-                        <Bot className="h-4 w-4" />
-                        Assistant
-                      </>
+                  <div
+                    className={`max-w-[80%] rounded-xl p-6 ${
+                      message.role === "user" 
+                        ? "bg-gray-800 text-white rounded-br-none" 
+                        : "bg-gray-100 rounded-bl-none"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      {message.role === "user" ? (
+                        <User className="h-5 w-5" />
+                      ) : (
+                        <Bot className="h-5 w-5 text-gray-700" />
+                      )}
+                      <span className="font-medium">
+                        {message.role === "user" ? "You" : "Assistant"}
+                      </span>
+                    </div>
+                    <div className="prose prose-sm max-w-none px-1">
+                      <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                    </div>
+                    {message.role === "assistant" && message.sources && message.sources.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-500">
+                        <p className="font-medium">Source: {message.sources[0]}</p>
+                        {message.confidence && (
+                          <p>Confidence: {(message.confidence * 100).toFixed(0)}%</p>
+                        )}
+                      </div>
                     )}
                   </div>
-                  <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.role === "assistant" && message.sources && message.sources.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
-                      <p>Sources: {message.sources.join(", ")}</p>
-                      {message.confidence && (
-                        <p>Confidence: {(message.confidence * 100).toFixed(1)}%</p>
-                      )}
+                </div>
+              ))}
+              {loading && (
+                <div className="flex justify-start">
+                  <div className="max-w-[80%] rounded-xl rounded-bl-none bg-gray-100 p-6">
+                    <div className="flex items-center gap-2">
+                      <Bot className="h-5 w-5 text-gray-700" />
+                      <span className="font-medium">Assistant</span>
                     </div>
-                  )}
+                    <div className="flex items-center gap-2 mt-3 px-1">
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                      <span className="text-gray-600">Thinking...</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
-          )}
-          {loading && (
-            <div className="flex justify-start">
-              <div className="max-w-[85%] rounded-lg p-3 bg-gray-100">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                  <Bot className="h-4 w-4" />
-                  Assistant
+              )}
+              {error && (
+                <div className="flex justify-center">
+                  <Alert variant="destructive" className="max-w-[80%]">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
                 </div>
-                <div className="flex items-center gap-2 mt-2 text-sm">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Processing your question...</span>
-                </div>
-              </div>
+              )}
             </div>
           )}
-          {error && (
-            <Alert variant="destructive" className="mt-4">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
           <div ref={messagesEndRef} />
-        </CardContent>
-        <CardFooter className="border-t p-4">
-          <form onSubmit={handleSubmit} className="w-full flex gap-2">
+        </div>
+
+        {/* Input Area */}
+        <div className="border-t bg-white p-4">
+          <form onSubmit={handleSubmit} className="flex gap-2 w-full max-w-3xl mx-auto">
             <Input
               value={question}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuestion(e.target.value)}
-              placeholder="Type your question..."
+              placeholder="Message PDF Assistant..."
               disabled={loading}
-              className="flex-grow"
+              className="flex-1 rounded-full"
             />
             <Button 
               type="submit" 
               disabled={loading || !question.trim()}
-              size="sm"
+              size="icon"
+              className="rounded-full h-10 w-10"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -192,8 +214,11 @@ export default function QAPage() {
               )}
             </Button>
           </form>
-        </CardFooter>
-      </Card>
+          <p className="text-xs text-gray-500 text-center mt-2">
+            Assistant may make mistakes. Consider checking important information.
+          </p>
+        </div>
+      </div>
     </main>
   )
 }
