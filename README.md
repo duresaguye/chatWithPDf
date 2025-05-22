@@ -80,7 +80,7 @@ npm run dev
 
 ## Usage
 
-1. Upload a PDF document (max size: 2MB)
+1. Upload a PDF document (max size: 5MB)
 2. Wait for the document to be processed
 3. Ask questions about the document's content
 4. View AI-generated answers with source references
@@ -100,7 +100,7 @@ pdf-qa/
 │   └── .env
 ├── frontend/
 │   ├── src/
-│   │   ├── features/
+│   │   ├── page/
 │   │   │   ├── PDFUploadPage.tsx
 │   │   │   └── QAPage.tsx
 │   │   ├── components/

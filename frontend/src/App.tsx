@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import PDFUploadPage from './features/PDFUploadPage';
-import QAPage from './features/QApage';
+import PDFUploadPage from './pages/PDFUploadPage';
+import QAPage from './pages/QApage';
 
 const App: React.FC = () => {
   return (

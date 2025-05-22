@@ -151,7 +151,7 @@ export default function PDFUploadPage() {
                 <p className="font-medium text-gray-700">
                   {isDragging ? 'Drop your PDF here' : 'Click to browse or drag & drop'}
                 </p>
-                <p className="text-sm text-gray-500 mt-1">Supports PDF files up to 2MB</p>
+                <p className="text-sm text-gray-500 mt-1">Supports PDF files up to 5MB</p>
               </div>
             </label>
           </div>

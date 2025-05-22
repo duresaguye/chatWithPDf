@@ -7,7 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useNavigate, useLocation } from "react-router-dom"
 import { API_ENDPOINTS } from "@/config"
 
-// Add custom styles for hiding scrollbar
+
 const scrollbarStyles = `
   .scrollbar-hide {
     -ms-overflow-style: none;
@@ -103,21 +103,22 @@ export default function QAPage() {
       <style>{scrollbarStyles}</style>
       <div className="w-full max-w-5xl h-screen flex flex-col">
         {/* Header */}
-        <div className="border-b bg-white p-4 flex items-center justify-between pt-32">
-          <div className="flex items-center space-x-2">
-            <Bot className="h-6 w-6 text-gray-700" />
-            <h1 className="text-lg font-semibold">PDF Assistant</h1>
-          </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => navigate("/")}
-            className="flex items-center"
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            New PDF
-          </Button>
-        </div>
+        <div className="border-b bg-white p-4 flex items-center justify-between pt-32 pb-6"> {/* Added pb-6 for bottom padding */}
+  <div className="flex items-center space-x-2">
+    <Bot className="h-6 w-6 text-gray-700" />
+    <h1 className="text-lg font-semibold">PDF Assistant</h1>
+  </div>
+  <Button 
+    variant="outline" 
+    size="sm" 
+    onClick={() => navigate("/")}
+    className="flex items-center"
+  >
+    <FileText className="mr-2 h-4 w-4" />
+    New PDF
+  </Button>
+</div>
+
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
@@ -215,8 +216,8 @@ export default function QAPage() {
             </Button>
           </form>
           <p className="text-xs text-gray-500 text-center mt-2">
-            Assistant may make mistakes. Consider checking important information.
-          </p>
+  Responses are based on the uploaded PDF content
+</p>
         </div>
       </div>
     </main>

@@ -20,12 +20,13 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # System resource limits
-MAX_PDF_SIZE = 2 * 1024 * 1024  # 2MB
-MAX_PAGES = 20
-MAX_TEXT_LENGTH = 50000  # characters
-MAX_CHUNKS = 30
-CHUNK_SIZE = 500
-OVERLAP = 100
+
+MAX_PDF_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_PAGES = 50
+MAX_TEXT_LENGTH = 100000  
+MAX_CHUNKS = 50 
+CHUNK_SIZE = 1000 
+OVERLAP = 200 
 
 # Configure Gemini (lazy loaded later)
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
