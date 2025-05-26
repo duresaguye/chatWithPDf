@@ -1,225 +1,124 @@
-import type React from "react"
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Loader2, Send, FileText, User, Bot } from "lucide-react"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useNavigate, useLocation } from "react-router-dom"
-import { API_ENDPOINTS } from "@/config"
-
-
-const scrollbarStyles = `
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-`
+import { useState } from 'react';
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Send, Bot, User, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  sources?: string[]
-  confidence?: number
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-export default function QAPage() {
-  const [question, setQuestion] = useState("")
-  const [messages, setMessages] = useState<Message[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const navigate = useNavigate()
-  const location = useLocation()
-  const pdfId = location.state?.pdfId
-
-  useEffect(() => {
-    if (!pdfId) {
-      navigate("/", { replace: true })
-    }
-  }, [pdfId, navigate])
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+const QAPage = () => {
+  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!question.trim() || !pdfId) return
+    e.preventDefault();
+    if (!question.trim() || loading) return;
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: question,
-    }
-    setMessages((prev) => [...prev, userMessage])
-    setLoading(true)
-    setError("")
-    setQuestion("")
+    const userMessage: Message = { role: 'user', content: question };
+    setMessages(prev => [...prev, userMessage]);
+    setQuestion('');
+    setLoading(true);
 
     try {
-      const response = await fetch(API_ENDPOINTS.ask, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          question,
-          pdf_id: pdfId 
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || "Failed to get answer")
-      }
-
-      const data = await response.json()
+      const response = await axios.post('http://localhost:8000/ask', {
+        question: question
+      });
 
       const assistantMessage: Message = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: data.answer,
-        sources: data.sources,
-        confidence: data.confidence
-      }
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to get an answer. Please try again.")
+        role: 'assistant',
+        content: response.data.answer
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Error asking question:', error);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
-
-  if (!pdfId) {
-    return null
-  }
+  };
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-gray-50">
-      <style>{scrollbarStyles}</style>
-      <div className="w-full max-w-5xl h-screen flex flex-col">
-        {/* Header */}
-        <div className="border-b bg-white p-4 flex items-center justify-between pt-32 pb-6"> {/* Added pb-6 for bottom padding */}
-  <div className="flex items-center space-x-2">
-    <Bot className="h-6 w-6 text-gray-700" />
-    <h1 className="text-lg font-semibold">PDF Assistant</h1>
-  </div>
-  <Button 
-    variant="outline" 
-    size="sm" 
-    onClick={() => navigate("/")}
-    className="flex items-center"
-  >
-    <FileText className="mr-2 h-4 w-4" />
-    New PDF
-  </Button>
-</div>
+    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto">
+          <div className="flex items-center mb-8">
+            <Button
+              variant="ghost"
+              onClick={() => navigate('/upload')}
+              className="mr-4"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Upload
+            </Button>
+            <h1 className="text-2xl font-bold text-gray-900">Chat with Your PDF</h1>
+          </div>
 
-
-        {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-hide">
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-500">
-              <Bot className="h-10 w-10 mb-4" />
-              <p className="text-lg">Ask me anything about your PDF document</p>
-              <p className="text-sm mt-2">I'll help you analyze and understand its contents</p>
-            </div>
-          ) : (
-            <div className="px-4 md:px-8">
-              {messages.map((message) => (
-                <div 
-                  key={message.id} 
-                  className={`flex ${message.role === "user" ? "justify-end" : "justify-start"} mb-6`}
+          <Card className="p-6 mb-6">
+            <div className="space-y-6 h-[60vh] overflow-y-auto mb-6">
+              {messages.map((message, index) => (
+                <div
+                  key={index}
+                  className={`flex ${
+                    message.role === 'user' ? 'justify-end' : 'justify-start'
+                  }`}
                 >
                   <div
-                    className={`max-w-[80%] rounded-xl p-6 ${
-                      message.role === "user" 
-                        ? "bg-gray-800 text-white rounded-br-none" 
-                        : "bg-gray-100 rounded-bl-none"
+                    className={`max-w-[80%] rounded-lg p-4 ${
+                      message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-100 text-gray-900'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-3">
-                      {message.role === "user" ? (
-                        <User className="h-5 w-5" />
+                    <div className="flex items-center mb-2">
+                      {message.role === 'assistant' ? (
+                        <Bot className="h-4 w-4 mr-2" />
                       ) : (
-                        <Bot className="h-5 w-5 text-gray-700" />
+                        <User className="h-4 w-4 mr-2" />
                       )}
                       <span className="font-medium">
-                        {message.role === "user" ? "You" : "Assistant"}
+                        {message.role === 'assistant' ? 'AI Assistant' : 'You'}
                       </span>
                     </div>
-                    <div className="prose prose-sm max-w-none px-1">
-                      <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
-                    </div>
-                    {message.role === "assistant" && message.sources && message.sources.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-500">
-                        <p className="font-medium">Source: {message.sources[0]}</p>
-                        {message.confidence && (
-                          <p>Confidence: {(message.confidence * 100).toFixed(0)}%</p>
-                        )}
-                      </div>
-                    )}
+                    <p className="whitespace-pre-wrap">{message.content}</p>
                   </div>
                 </div>
               ))}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="max-w-[80%] rounded-xl rounded-bl-none bg-gray-100 p-6">
-                    <div className="flex items-center gap-2">
-                      <Bot className="h-5 w-5 text-gray-700" />
-                      <span className="font-medium">Assistant</span>
+                  <div className="bg-gray-100 rounded-lg p-4">
+                    <div className="flex items-center">
+                      <Bot className="h-4 w-4 mr-2" />
+                      <span className="font-medium">AI Assistant</span>
                     </div>
-                    <div className="flex items-center gap-2 mt-3 px-1">
-                      <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-                      <span className="text-gray-600">Thinking...</span>
-                    </div>
+                    <p>Thinking...</p>
                   </div>
                 </div>
               )}
-              {error && (
-                <div className="flex justify-center">
-                  <Alert variant="destructive" className="max-w-[80%]">
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                </div>
-              )}
             </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
 
-        {/* Input Area */}
-        <div className="border-t bg-white p-4">
-          <form onSubmit={handleSubmit} className="flex gap-2 w-full max-w-3xl mx-auto">
-            <Input
-              value={question}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuestion(e.target.value)}
-              placeholder="Message PDF Assistant..."
-              disabled={loading}
-              className="flex-1 rounded-full"
-            />
-            <Button 
-              type="submit" 
-              disabled={loading || !question.trim()}
-              size="icon"
-              className="rounded-full h-10 w-10"
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+            <form onSubmit={handleSubmit} className="flex gap-4">
+              <Input
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="Ask a question about your PDF..."
+                className="flex-1"
+                disabled={loading}
+              />
+              <Button type="submit" disabled={loading}>
                 <Send className="h-4 w-4" />
-              )}
-            </Button>
-          </form>
-          <p className="text-xs text-gray-500 text-center mt-2">
-  Responses are based on the uploaded PDF content
-</p>
+              </Button>
+            </form>
+          </Card>
         </div>
       </div>
-    </main>
-  )
-}
+    </div>
+  );
+};
+
+export default QAPage;
