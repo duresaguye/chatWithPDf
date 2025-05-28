@@ -220,7 +220,7 @@ export default function PDFQALandingPage() {
                 {[
                   "FastAPI - High-performance Python web framework",
                   "ChromaDB - Vector database for semantic search",
-                  "Google Gemini AI - Advanced language model",
+                  "Google Gemini AI ",
                   "PyPDF2 - PDF text extraction",
                   "Sentence Transformers - Text embeddings",
                 ].map((tech, index) => (
