@@ -1,6 +1,6 @@
 import os
 import google.generativeai as genai
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, status, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, status, BackgroundTasks, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import chromadb
@@ -12,6 +12,8 @@ from typing import List, Optional
 from dotenv import load_dotenv
 import psutil
 import logging
+import shutil
+from fastapi.responses import FileResponse
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +65,9 @@ model = None
 sentence_transformer_ef = None
 pdf_collection = None
 
+UPLOAD_DIR = "./uploaded_pdfs"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 class QuestionRequest(BaseModel):
     question: str
     pdf_id: Optional[str] = None
@@ -76,6 +81,14 @@ class UploadResponse(BaseModel):
     pdf_id: str
     filename: str
     num_chunks: int
+
+class SummarizeRequest(BaseModel):
+    pdf_id: str
+    page: Optional[int] = None
+    whole: Optional[bool] = False
+
+class SummarizeResponse(BaseModel):
+    summary: str
 
 def check_system_resources():
     """Check if system has enough resources to proceed"""
@@ -154,6 +167,12 @@ async def upload_pdf(
         if len(content) > MAX_PDF_SIZE:
             raise HTTPException(400, f"PDF too large. Max size is {MAX_PDF_SIZE/1024/1024}MB")
 
+        # Save original PDF for later viewing
+        pdf_id = str(uuid.uuid4())
+        pdf_path = os.path.join(UPLOAD_DIR, f"{pdf_id}.pdf")
+        with open(pdf_path, "wb") as f:
+            f.write(content)
+
         # Process PDF with PyPDF2
         text = extract_text_from_pdf(content)
 
@@ -166,7 +185,6 @@ async def upload_pdf(
             raise HTTPException(400, "Could not chunk text")
 
         # Prepare metadata
-        pdf_id = str(uuid.uuid4())
         filename = file.filename
 
         # Prepare documents for ChromaDB
@@ -194,6 +212,13 @@ async def upload_pdf(
     except Exception as e:
         logger.error(f"Upload failed: {str(e)}", exc_info=True)
         raise HTTPException(500, f"PDF upload failed: {str(e)}")
+
+@app.get("/pdf/{pdf_id}")
+def get_pdf(pdf_id: str):
+    pdf_path = os.path.join(UPLOAD_DIR, f"{pdf_id}.pdf")
+    if not os.path.exists(pdf_path):
+        raise HTTPException(404, "PDF not found")
+    return FileResponse(pdf_path, media_type="application/pdf", filename=f"{pdf_id}.pdf")
 
 
 @app.post("/ask", response_model=AnswerResponse)
@@ -278,6 +303,56 @@ ANSWER:"""
     except Exception as e:
         logger.error(f"Question processing failed: {str(e)}", exc_info=True)
         raise HTTPException(500, f"Question processing failed: {str(e)}")
+
+@app.post("/summarize", response_model=SummarizeResponse)
+async def summarize_pdf(request: SummarizeRequest = Body(...)):
+    try:
+        check_system_resources()
+        pdf_path = os.path.join(UPLOAD_DIR, f"{request.pdf_id}.pdf")
+        if not os.path.exists(pdf_path):
+            raise HTTPException(404, "PDF not found")
+        with open(pdf_path, "rb") as f:
+            content = f.read()
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+        if request.whole:
+            # Summarize the whole document (up to MAX_PAGES)
+            text = ""
+            for i, page in enumerate(pdf_reader.pages):
+                if i >= MAX_PAGES:
+                    break
+                page_text = page.extract_text() or ""
+                if len(text) + len(page_text) > MAX_TEXT_LENGTH:
+                    break
+                text += page_text + "\n"
+            if not text:
+                raise HTTPException(400, "Could not extract text from PDF")
+        elif request.page is not None:
+            # Summarize a specific page
+            if request.page < 1 or request.page > len(pdf_reader.pages):
+                raise HTTPException(400, "Invalid page number")
+            page = pdf_reader.pages[request.page - 1]
+            text = page.extract_text() or ""
+            if not text:
+                raise HTTPException(400, "Could not extract text from the specified page")
+        else:
+            raise HTTPException(400, "Specify either 'whole' or 'page'")
+        # Summarize with Gemini
+        prompt = f"""
+Summarize the following PDF content in 3-5 concise, clear bullet points. Focus on the main ideas and key information. Use plain language.
+
+CONTENT:
+{text}
+
+SUMMARY (3-5 bullet points):
+"""
+        response = model.generate_content(prompt)
+        summary = response.text.strip()
+        return SummarizeResponse(summary=summary)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Summarization failed: {str(e)}", exc_info=True)
+        raise HTTPException(500, f"Summarization failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

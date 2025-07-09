@@ -92,6 +92,7 @@ npm run dev
 
 ## Project Structure
 
+
 ```
 chatWithPDf/
 ├── backend/

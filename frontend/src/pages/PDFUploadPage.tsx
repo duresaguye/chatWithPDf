@@ -45,7 +45,12 @@ const PDFUploadPage = () => {
       });
 
       // If we get here, the upload was successful
-      navigate('/qa');
+      const pdfId = response.data.pdf_id || response.data.pdfId;
+      if (pdfId) {
+        navigate(`/qa?pdfId=${pdfId}`);
+      } else {
+        navigate('/qa');
+      }
     } catch (err) {
       console.error('Upload error:', err);
       setError('Failed to upload file. Please try again.');
